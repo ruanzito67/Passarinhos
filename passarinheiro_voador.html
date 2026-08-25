@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Passarinho Voador</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; width: 100%; height: 100%;
+    overflow: hidden; background: #111;
+    font-family: Arial, sans-serif;
+    touch-action: none;
+  }
+  body { display: flex; justify-content: center; align-items: center; }
+  #game {
+    position: relative;
+    width: min(100vw, 480px);
+    height: min(100vh, 800px);
+    overflow: hidden;
+    background: linear-gradient(#72d7ff 0%, #c8f4ff 72%, #9be15d 72%, #65b83e 100%);
+  }
+  canvas { width: 100%; height: 100%; display: block; }
+  #ui {
+    position: absolute; inset: 0;
+    pointer-events: none;
+    color: white; text-align: center;
+    text-shadow: 2px 2px 0 #333;
+  }
+  #score {
+    font-size: 48px; font-weight: 900;
+    margin-top: 28px;
+  }
+  #message {
+    position: absolute; left: 20px; right: 20px; top: 38%;
+    font-size: 30px; font-weight: 900;
+  }
+  #sub { font-size: 17px; margin-top: 10px; }
+  button {
+    pointer-events: auto;
+    border: 0; border-radius: 14px;
+    padding: 13px 25px;
+    font-size: 18px; font-weight: 800;
+    background: #ffd83d; color: #222;
+    box-shadow: 0 4px 0 #c59d00;
+    cursor: pointer;
+    margin-top: 18px;
+  }
+  #tip {
+    position: absolute; bottom: 18px; left: 0; right: 0;
+    font-size: 14px; color: #fff;
+    text-shadow: 1px 1px 2px #333;
+  }
+</style>
+</head>
+<body>
+<div id="game">
+  <canvas id="canvas" width="480" height="800"></canvas>
+  <div id="ui">
+    <div id="score">0</div>
+    <div id="message">
+      <div id="title">🐦 PASSARINHO VOADOR</div>
+      <div id="sub">Toque na tela ou aperte ESPAÇO para voar</div>
+      <button id="start">JOGAR</button>
+    </div>
+    <div id="tip">Passe pelos túneis sem encostar!</div>
+  </div>
+</div>
+
+<script>
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+const scoreEl = document.getElementById("score");
+const message = document.getElementById("message");
+const title = document.getElementById("title");
+const sub = document.getElementById("sub");
+const startBtn = document.getElementById("start");
+
+const W = 480, H = 800;
+let state = "ready";
+let score = 0, best = Number(localStorage.getItem("passarinhoBest") || 0);
+let pipes = [];
+let spawnTimer = 0;
+let last = 0;
+
+const bird = { x: 120, y: 390, vy: 0, r: 17, rotation: 0 };
+
+function reset() {
+  score = 0;
+  pipes = [];
+  spawnTimer = 0;
+  bird.y = 390;
+  bird.vy = 0;
+  bird.rotation = 0;
+  scoreEl.textContent = "0";
+}
+
+function start() {
+  reset();
+  state = "playing";
+  message.style.display = "none";
+  flap();
+}
+
+function gameOver() {
+  state = "over";
+  if (score > best) {
+    best = score;
+    localStorage.setItem("passarinhoBest", best);
+  }
+  title.textContent = "💥 FIM DE JOGO";
+  sub.innerHTML = `Pontuação: <b>${score}</b><br>Recorde: <b>${best}</b>`;
+  startBtn.textContent = "JOGAR NOVAMENTE";
+  message.style.display = "block";
+}
+
+function flap() {
+  if (state === "ready") start();
+  else if (state === "over") start();
+  else bird.vy = -390;
+}
+
+function addPipe() {
+  const gap = Math.max(145, 185 - score * 1.5);
+  const minTop = 105, maxTop = H - 190 - gap;
+  const top = minTop + Math.random() * Math.max(10, maxTop - minTop);
+  pipes.push({ x: W + 40, width: 72, top, gap, passed: false });
+}
+
+function circleRectCollision(cx, cy, r, rx, ry, rw, rh) {
+  const nearestX = Math.max(rx, Math.min(cx, rx + rw));
+  const nearestY = Math.max(ry, Math.min(cy, ry + rh));
+  const dx = cx - nearestX, dy = cy - nearestY;
+  return dx * dx + dy * dy < r * r;
+}
+
+function update(dt) {
+  if (state !== "playing") return;
+
+  bird.vy += 1100 * dt;
+  bird.y += bird.vy * dt;
+  bird.rotation = Math.max(-0.5, Math.min(1.15, bird.vy / 500));
+
+  spawnTimer += dt;
+  if (spawnTimer > 1.45) {
+    spawnTimer = 0;
+    addPipe();
+  }
+
+  for (const p of pipes) {
+    p.x -= (210 + score * 2) * dt;
+
+    if (!p.passed && p.x + p.width < bird.x) {
+      p.passed = true;
+      score++;
+      scoreEl.textContent = score;
+    }
+
+    if (
+      circleRectCollision(bird.x, bird.y, bird.r, p.x, 0, p.width, p.top) ||
+      circleRectCollision(bird.x, bird.y, bird.r, p.x, p.top + p.gap, p.width, H - (p.top + p.gap))
+    ) gameOver();
+  }
+
+  pipes = pipes.filter(p => p.x + p.width > -20);
+
+  if (bird.y - bird.r < 0 || bird.y + bird.r > H - 62) gameOver();
+}
+
+function drawBackground() {
+  // clouds
+  ctx.fillStyle = "rgba(255,255,255,.8)";
+  for (const c of [{x:80,y:120,s:1},{x:350,y:180,s:.8},{x:260,y:70,s:.55}]) {
+    ctx.beginPath();
+    ctx.arc(c.x, c.y, 22*c.s, 0, Math.PI*2);
+    ctx.arc(c.x+25*c.s, c.y+3, 28*c.s, 0, Math.PI*2);
+    ctx.arc(c.x+52*c.s, c.y, 19*c.s, 0, Math.PI*2);
+    ctx.fill();
+  }
+  // ground
+  ctx.fillStyle = "#67b83d";
+  ctx.fillRect(0, H-62, W, 62);
+  ctx.fillStyle = "#9ad84e";
+  ctx.fillRect(0, H-62, W, 9);
+}
+
+function drawPipe(p) {
+  const cap = 9;
+  ctx.fillStyle = "#3cae3b";
+  ctx.strokeStyle = "#207a29";
+  ctx.lineWidth = 4;
+
+  ctx.fillRect(p.x, 0, p.width, p.top);
+  ctx.strokeRect(p.x, 0, p.width, p.top);
+  ctx.fillRect(p.x-cap, p.top-cap, p.width+cap*2, cap+10);
+  ctx.strokeRect(p.x-cap, p.top-cap, p.width+cap*2, cap+10);
+
+  const bottomY = p.top + p.gap;
+  ctx.fillRect(p.x, bottomY, p.width, H-bottomY);
+  ctx.strokeRect(p.x, bottomY, p.width, H-bottomY);
+  ctx.fillRect(p.x-cap, bottomY-1, p.width+cap*2, cap+10);
+  ctx.strokeRect(p.x-cap, bottomY-1, p.width+cap*2, cap+10);
+
+  // highlight
+  ctx.fillStyle = "rgba(255,255,255,.18)";
+  ctx.fillRect(p.x+10, 0, 9, p.top);
+  ctx.fillRect(p.x+10, bottomY, 9, H-bottomY);
+}
+
+function drawBird() {
+  ctx.save();
+  ctx.translate(bird.x, bird.y);
+  ctx.rotate(bird.rotation);
+
+  // wing
+  ctx.fillStyle = "#e6a51a";
+  ctx.beginPath();
+  ctx.ellipse(-8, 8, 14, 8, -0.5, 0, Math.PI*2);
+  ctx.fill();
+
+  // body
+  ctx.fillStyle = "#ffd43b";
+  ctx.beginPath();
+  ctx.arc(0, 0, bird.r, 0, Math.PI*2);
+  ctx.fill();
+  ctx.strokeStyle = "#a97800";
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  // beak
+  ctx.fillStyle = "#ff8a21";
+  ctx.beginPath();
+  ctx.moveTo(14, -1); ctx.lineTo(32, 5); ctx.lineTo(14, 10); ctx.closePath();
+  ctx.fill();
+
+  // eye
+  ctx.fillStyle = "#fff";
+  ctx.beginPath(); ctx.arc(7, -8, 6, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle = "#111";
+  ctx.beginPath(); ctx.arc(9, -8, 2.8, 0, Math.PI*2); ctx.fill();
+
+  ctx.restore();
+}
+
+function draw() {
+  ctx.clearRect(0,0,W,H);
+  drawBackground();
+  for (const p of pipes) drawPipe(p);
+  drawBird();
+}
+
+function loop(t) {
+  const dt = Math.min(0.032, (t-last)/1000 || 0);
+  last = t;
+  update(dt);
+  draw();
+  requestAnimationFrame(loop);
+}
+
+startBtn.addEventListener("click", e => { e.stopPropagation(); start(); });
+document.getElementById("game").addEventListener("pointerdown", e => {
+  if (e.target === startBtn) return;
+  flap();
+});
+document.addEventListener("keydown", e => {
+  if (e.code === "Space" || e.code === "ArrowUp") {
+    e.preventDefault();
+    flap();
+  }
+});
+
+reset();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
